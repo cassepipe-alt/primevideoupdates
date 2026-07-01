@@ -1,1 +1,60 @@
+name: Prime Video Watcher
 
+on:
+  schedule:
+    - cron: "0 7 * * 1"      # ogni lunedì alle 07:00 UTC
+  workflow_dispatch:          # permette il run manuale dal tab Actions
+
+permissions:
+  contents: write             # per committare state.json e docs/
+  pages: write
+  id-token: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run watcher
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          WATCHMODE_API_KEY: ${{ secrets.WATCHMODE_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO:   ${{ secrets.MAIL_TO }}
+          PAGE_URL:  ${{ vars.PAGE_URL }}
+        run: python watcher.py
+
+      - name: Commit results
+        run: |
+          git config user.name  "prime-watcher-bot"
+          git config user.email "actions@github.com"
+          git add state.json docs/index.html docs/data.json
+          git commit -m "Weekly update: $(date -u +'%Y-%m-%d')" || echo "Nessuna modifica da committare"
+          git push
+
+  deploy:
+    needs: run
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
